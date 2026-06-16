@@ -9,7 +9,8 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+import plotly.express as px
+import plotly.graph_objects as go
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
 from sklearn.preprocessing import StandardScaler
@@ -42,7 +43,6 @@ def train_model():
     X_train_s = scaler.fit_transform(X_train)
     X_test_s = scaler.transform(X_test)
 
-    # Candidate models
     models = {
         "KNN": KNeighborsClassifier(),
         "SVM": SVC(random_state=42),
@@ -54,7 +54,6 @@ def train_model():
         scores = cross_val_score(model, X_train_s, y_train, cv=5, scoring="accuracy")
         cv_results[name] = (scores.mean(), scores.std())
 
-    # Tune SVM
     grid = GridSearchCV(
         SVC(random_state=42),
         {"C": [0.1, 1, 10, 100], "gamma": [0.001, 0.01, 0.1, 1, "scale", "auto"], "kernel": ["rbf"]},
@@ -72,6 +71,9 @@ def train_model():
 
 scaler, best_model, best_params, best_cv_acc, test_acc, cm, report, cv_results, X_train, X_test, y_train, y_test = train_model()
 
+# ── Colour palette ──
+colors = ["#FF4B4B", "#2ECC71", "#3498DB"]
+
 # ──────────────────────────────
 # PHASE 1 & 2: Business / Data Understanding
 # ──────────────────────────────
@@ -85,21 +87,19 @@ with st.expander("📋 Phase 1 & 2 — Business & Data Understanding", expanded=
     st.write("**Class distribution:**", dist_df)
     st.write("**Feature names:**", feature_names)
 
-    # 3D scatter
-    fig = plt.figure(figsize=(8, 5))
-    ax = fig.add_subplot(111, projection="3d")
-    colors = ["r", "g", "b"]
-    for i, name in enumerate(target_names):
-        mask = y == i
-        ax.scatter(X[mask, 2], X[mask, 3], X[mask, 0],
-                   c=colors[i], label=name, s=40, edgecolors="k", alpha=0.8)
-    ax.set_xlabel("Petal length (cm)")
-    ax.set_ylabel("Petal width (cm)")
-    ax.set_zlabel("Sepal length (cm)")
-    ax.set_title("Iris Dataset — 3D Scatter")
-    ax.legend()
-    st.pyplot(fig)
-    plt.close(fig)
+    # Interactive 3D scatter — Plotly
+    df_iris = px.data.iris()
+    fig3d = px.scatter_3d(
+        df_iris,
+        x="petal_length", y="petal_width", z="sepal_length",
+        color="species",
+        color_discrete_map={"setosa": colors[0], "versicolor": colors[1], "virginica": colors[2]},
+        title="Iris Dataset — 3D Scatter",
+        labels={"petal_length": "Petal length (cm)", "petal_width": "Petal width (cm)", "sepal_length": "Sepal length (cm)"},
+    )
+    fig3d.update_traces(marker=dict(size=5, line=dict(width=1, color="black")))
+    fig3d.update_layout(height=500, legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
+    st.plotly_chart(fig3d, use_container_width=True)
 
 # ──────────────────────────────
 # PHASE 3: Data Preparation
@@ -145,11 +145,13 @@ with st.expander("📊 Phase 5 — Evaluation", expanded=True):
     st.pyplot(fig_cm)
     plt.close(fig_cm)
 
-    st.subheader("3D Decision Surface + 2D Contour")
+    st.subheader("Interactive 3D Decision Surface")
+
+    # Build meshgrid & predict
     x_min, x_max = X[:, 2].min() - 0.5, X[:, 2].max() + 0.5
     y_min, y_max = X[:, 3].min() - 0.5, X[:, 3].max() + 0.5
-    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 50),
-                         np.linspace(y_min, y_max, 50))
+    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 30),
+                         np.linspace(y_min, y_max, 30))
     sepal_w_mean = X[:, 1].mean()
     sepal_l_mean = X[:, 0].mean()
     grid_4d = np.c_[np.full(xx.ravel().shape, sepal_l_mean),
@@ -157,35 +159,58 @@ with st.expander("📊 Phase 5 — Evaluation", expanded=True):
                     xx.ravel(), yy.ravel()]
     Z = best_model.predict(scaler.transform(grid_4d)).reshape(xx.shape)
 
-    fig2 = plt.figure(figsize=(12, 5))
-    ax1 = fig2.add_subplot(121, projection="3d")
-    zz = np.full_like(xx, sepal_l_mean)
-    Z_colors = np.zeros((*Z.shape, 3))
-    for i, c in enumerate(colors):
-        Z_colors[Z == i] = plt.matplotlib.colors.to_rgb(c)
-    ax1.plot_surface(xx, yy, zz, facecolors=Z_colors, alpha=0.4, rstride=1, cstride=1)
-    for i, name in enumerate(target_names):
-        mask = y == i
-        ax1.scatter(X[mask, 2], X[mask, 3], X[mask, 0],
-                    c=colors[i], label=name, s=30, edgecolors="k", alpha=0.8)
-    ax1.set_xlabel("Petal length (cm)")
-    ax1.set_ylabel("Petal width (cm)")
-    ax1.set_zlabel("Sepal length (cm)")
-    ax1.set_title("3D Decision Surface")
-    ax1.legend()
+    # Surface for each class region
+    fig_surf = go.Figure()
+    class_cmap = {0: colors[0], 1: colors[1], 2: colors[2]}
+    for cls_id in range(3):
+        mask_class = Z == cls_id
+        zz_surf = np.full_like(xx, sepal_l_mean, dtype=float)
+        zz_surf[~mask_class] = np.nan
 
-    ax2 = fig2.add_subplot(122)
-    ax2.contourf(xx, yy, Z, alpha=0.3, cmap="RdYlBu")
+        fig_surf.add_trace(go.Surface(
+            x=xx, y=yy, z=zz_surf,
+            opacity=0.35,
+            colorscale=[[0, class_cmap[cls_id]], [1, class_cmap[cls_id]]],
+            showscale=False,
+            name=target_names[cls_id],
+            contours=dict(x=dict(show=False), y=dict(show=False), z=dict(show=False)),
+        ))
+
+    # Overlay data points
     for i, name in enumerate(target_names):
         mask = y == i
-        ax2.scatter(X[mask, 2], X[mask, 3], c=colors[i], label=name, s=30, edgecolors="k")
-    ax2.set_xlabel("Petal length (cm)")
-    ax2.set_ylabel("Petal width (cm)")
-    ax2.set_title("2D Decision Contour")
-    ax2.legend()
-    fig2.tight_layout()
-    st.pyplot(fig2)
-    plt.close(fig2)
+        fig_surf.add_trace(go.Scatter3d(
+            x=X[mask, 2], y=X[mask, 3], z=X[mask, 0],
+            mode="markers",
+            marker=dict(size=5, color=colors[i], line=dict(width=1, color="black")),
+            name=name,
+        ))
+
+    fig_surf.update_layout(
+        height=550,
+        scene=dict(
+            xaxis_title="Petal length (cm)",
+            yaxis_title="Petal width (cm)",
+            zaxis_title="Sepal length (cm)",
+        ),
+        title="3D Decision Surface — drag to rotate",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+    )
+    st.plotly_chart(fig_surf, use_container_width=True)
+
+    # 2D contour (static, as reference)
+    st.subheader("2D Decision Contour (reference)")
+    fig2d, ax2d = plt.subplots(figsize=(6, 4))
+    ax2d.contourf(xx, yy, Z, alpha=0.3, cmap="RdYlBu")
+    for i, name in enumerate(target_names):
+        mask = y == i
+        ax2d.scatter(X[mask, 2], X[mask, 3], c=colors[i], label=name, s=30, edgecolors="k")
+    ax2d.set_xlabel("Petal length (cm)")
+    ax2d.set_ylabel("Petal width (cm)")
+    ax2d.set_title("2D Decision Contour")
+    ax2d.legend()
+    st.pyplot(fig2d)
+    plt.close(fig2d)
 
 # ──────────────────────────────
 # PHASE 6: Deployment — Interactive Prediction
