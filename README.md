@@ -49,3 +49,7 @@ streamlit run streamlit_app.py
 - **3D Scatter**: petal length × petal width × sepal length, colored by species
 - **3D Decision Surface**: SVM decision regions projected onto the 3D feature space
 - **2D Decision Contour**: traditional decision boundary in petal length × petal width plane
+
+![3D Scatter](iris_3d_scatter.png)
+![Decision Boundary](iris_decision_boundary.png)
+![Confusion Matrix](iris_confusion_matrix.png)
