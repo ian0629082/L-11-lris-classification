@@ -2,6 +2,8 @@
 
 Interactive Iris classification app built with **scikit-learn** following the **CRISP-DM** methodology, deployed on **Streamlit Cloud**.
 
+🔗 **Live Demo:** [l-11-lris-classification.streamlit.app](https://l-11-lris-classification.streamlit.app/)
+
 ## 🧠 CRISP-DM Pipeline
 
 | Phase | Description |
